@@ -1,9 +1,9 @@
-// Redux/streamSlice.js
 import { createSlice } from "@reduxjs/toolkit";
 
 const initialState = {
-  isStreaming: localStorage.getItem("isStreaming") === "true",
-  streamTitle: localStorage.getItem("streamTitle") || "",
+  isStreaming: false,
+  streamTitle: "",
+  currentStreamerId: null,
 };
 
 const streamSlice = createSlice({
@@ -12,16 +12,20 @@ const streamSlice = createSlice({
   reducers: {
     setIsStreaming: (state, action) => {
       state.isStreaming = action.payload;
-      if (action.payload) localStorage.setItem("isStreaming", "true");
-      else localStorage.removeItem("isStreaming");
     },
     setStreamTitle: (state, action) => {
       state.streamTitle = action.payload;
-      if (action.payload) localStorage.setItem("streamTitle", action.payload);
-      else localStorage.removeItem("streamTitle");
+    },
+    setStreamerId: (state, action) => {
+      state.currentStreamerId = action.payload;
+    },
+    resetStreamState: (state) => {
+      state.isStreaming = false;
+      state.streamTitle = "";
+      state.currentStreamerId = null;
     },
   },
 });
 
-export const { setIsStreaming, setStreamTitle } = streamSlice.actions;
+export const { setIsStreaming, setStreamTitle, setStreamerId, resetStreamState } = streamSlice.actions;
 export default streamSlice.reducer;

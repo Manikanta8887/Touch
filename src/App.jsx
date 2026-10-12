@@ -1,4 +1,3 @@
-// App.jsx
 import { Route, Routes, useLocation } from "react-router-dom";
 import LiveStreamingPlatform from "./Components/Pages/Main";
 import LandingPage from "./Components/LandingPage/LandingPage";
@@ -10,7 +9,6 @@ import StreamingContent from "./Components/Pages/Browse";
 import ProfilePage from "./Components/Pages/Profile";
 import WatchStream from "./Components/Pages/WatchStream.jsx";
 
-import "./App.css";
 import Spin from "./assets/spinloading.svg";
 import { useEffect, useRef, useState, useMemo } from "react";
 
@@ -37,7 +35,9 @@ function App() {
   return (
     <>
       {loading ? (
-        <img src={Spin} alt="Loading..." className="loading-container" />
+        <div className="flex items-center justify-center min-h-screen bg-background">
+          <img src={Spin} alt="Loading..." className="w-28 h-28 object-contain" />
+        </div>
       ) : (
         <Routes>
           <Route path="/" element={<LandingPage />} />
@@ -45,8 +45,8 @@ function App() {
           <Route path="/signup" element={<Signup />} />
           <Route path="/livestreamingplatform" element={<LiveStreamingPlatform />}>
             <Route index element={<StreamingContent />} />
+            <Route path="videos" element={<StreamingContent defaultTab="videos" />} />
             <Route path="stream/:id" element={<StartStreaming />} />
-            {/* <Route path="watch/:id" element={<WatchStream />} /> */}
             <Route path="watch/:id" element={<WatchStream />} />
             <Route path="profile" element={<ProfilePage />} />
           </Route>

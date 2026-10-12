@@ -1,354 +1,113 @@
-// import React, { useEffect, useRef, useState } from "react";
-// import { useParams } from "react-router-dom";
-// import { Card, Typography, message, Input, Button, List, Space, Tooltip } from "antd";
-// import { SendOutlined, CopyOutlined } from "@ant-design/icons";
-// import socket from "../../socket";
-// import "./WatchStream.css";
-
-// const { Title, Paragraph } = Typography;
-
-// const WatchStream = () => {
-//   const { id } = useParams();
-//   const videoRef = useRef(null);
-//   const chatEndRef = useRef(null);
-//   const peerConnectionRef = useRef(null);
-
-//   const [streamInfo, setStreamInfo] = useState(null);
-//   const [messages, setMessages] = useState([]);
-//   const [messageInput, setMessageInput] = useState("");
-//   const [error, setError] = useState("");
-
-
-//   const ICE_SERVERS = {
-//     iceServers: [
-//       { urls: "stun:stun.l.google.com:19302" },         
-//       { urls: "stun:global.xirsys.net:3478" },         
-//       {                                                
-//         urls: "turn:global.xirsys.net:3478?transport=udp",
-//         username: "Mani",
-//         credential: "71742688-1f41-11f0-8c62-0242ac130003",
-//       },
-//       {                                                
-//         urls: "turn:global.xirsys.net:3478?transport=tcp",
-//         username: "Mani",
-//         credential: "71742688-1f41-11f0-8c62-0242ac130003",
-//       },
-//       {                                                
-//         urls: "turns:global.xirsys.net:443?transport=tcp",
-//         username: "Mani",
-//         credential: "71742688-1f41-11f0-8c62-0242ac130003",
-//       },
-//     ],
-//   };
-  
-
-//   const setupPeerConnection = (streamerSocketId) => {
-//     if (peerConnectionRef.current) return;
-
-//     const pc = new RTCPeerConnection(ICE_SERVERS);
-//     peerConnectionRef.current = pc;
-//     {
-//       const pc = peerConnectionRef.current;
-//       pc.onicegatheringstatechange = () =>
-//         console.log("[WebRTC][start] gathering state:", pc.iceGatheringState);
-//       pc.oniceconnectionstatechange = () =>
-//         console.log("[WebRTC][start] ice state:", pc.iceConnectionState);
-//     }
-
-//     pc.onicecandidate = (e) => {
-//       if (e.candidate && streamerSocketId) {
-//         console.log("[WebRTC] sending ICE to streamer:", e.candidate);
-//         socket.emit("ice-candidate", {
-//           streamId: id,
-//           candidate: e.candidate,
-//           target: streamerSocketId,
-//         });
-//       } else {
-//         console.warn("[WebRTC] ICE candidate not sent; no streamerSocketId");
-//       }
-//     };
-
-//     pc.ontrack = (event) => {
-//       console.log("[WebRTC] track received:", event.streams);
-//       if (event.streams[0] && videoRef.current) {
-//         videoRef.current.srcObject = event.streams[0];
-//       }
-//     };
-
-//     pc.onconnectionstatechange = () => {
-//       console.log("[WebRTC] connectionState:", pc.connectionState);
-//     };
-
-//     socket.on("offer", async ({ offer, from }) => {
-//       console.log("[Socket] offer from streamer:", offer);
-//       try {
-//         await pc.setRemowteDescription(new RTCSessionDescription(offer));
-//         const answer = await pc.createAnswer();
-//         if (pc.signalingState === "have-remote-offer") {
-//           await pc.setLocalDescription(answer);
-//           console.log("[WebRTC] created & set local answer:", answer);
-//           socket.emit("answer", { streamId: id, answer, target: from });
-//         }
-//       } catch (err) {
-//         console.error("[WebRTC] error handling offer:", err);
-//       }
-//     });
-
-//     socket.on("ice-candidate", async ({ candidate }) => {
-//       try {
-//         await pc.addIceCandidate(new RTCIceCandidate(candidate));
-//         console.log("[WebRTC] added ICE from streamer:", candidate);
-//       } catch (e) {
-//         console.error("[WebRTC] addIceCandidate failed:", e);
-//       }
-//     });
-//   };
-
-//   useEffect(() => {
-//     socket.emit("join-stream", { streamId: id });
-//     console.log("[Socket] join-stream emitted:", id);
-
-//     socket.on("stream-info", (data) => {
-//       if (!data) {
-//         setError("Stream not found or has ended.");
-//         return;
-//       }
-//       setStreamInfo(data);
-//       message.success(`Joined stream: ${data.streamTitle}`);
-//       console.log("[Socket] received stream-info:", data);
-//       setupPeerConnection(data.streamerSocketId);
-//     });
-
-//     socket.on("stop-stream", () => {
-//       setError("The stream has been stopped.");
-//       cleanupStream();
-//     });
-
-//     socket.on("stream-ended", () => {
-//       setError("The stream has ended.");
-//       cleanupStream();
-//     });
-
-//     return () => {
-//       socket.emit("leave-stream", { streamId: id });
-//       socket.off("stream-info");
-//       socket.off("stop-stream");
-//       socket.off("stream-ended");
-//       socket.off("offer");
-//       socket.off("ice-candidate");
-//       cleanupStream();
-//     };
-//   }, [id]);
-
-//   const cleanupStream = () => {
-//     if (videoRef.current) videoRef.current.srcObject = null;
-//     if (peerConnectionRef.current) {
-//       peerConnectionRef.current.close();
-//       peerConnectionRef.current = null;
-//     }
-//   };
-
-//   useEffect(() => {
-//     socket.on("chat-message", (msg) => {
-//       console.log("[Socket] chat-message:", msg);
-//       setMessages((prev) => [...prev, msg]);
-//     });
-//     return () => socket.off("chat-message");
-//   }, []);
-
-//   useEffect(() => {
-//     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-//   }, [messages]);
-
-//   const sendMessage = () => {
-//     if (!messageInput.trim()) return;
-//     socket.emit("chat-message", {
-//       streamId: id,
-//       userId: "Viewer",
-//       username: "Viewer",
-//       message: messageInput,
-//       time: new Date().toLocaleTimeString(),
-//     });
-//     setMessageInput("");
-//   };
-
-//   const handleCopyLink = () => {
-//     const link = `${window.location.origin}/livestreamingplatform/watch/${id}`;
-//     navigator.clipboard.writeText(link).then(() => message.success("Copied link!"));
-//   };
-
-//   return (
-//     <Card style={{ margin: "20px" }}>
-//       {streamInfo && !error ? (
-//         <>
-//           <Title level={3}>{streamInfo.streamTitle}</Title>
-//           <div style={{ marginBottom: 10 }}>
-//             <Paragraph
-//               copyable={{
-//                 text: `${window.location.origin}/livestreamingplatform/watch/${id}`,
-//               }}
-//               style={{ marginBottom: 4 }}
-//             >
-//               <strong>🔗 Share Stream:</strong>{" "}
-//               {`${window.location.origin}/livestreamingplatform/watch/${id}`}
-//             </Paragraph>
-//             <Tooltip title="Copy full stream link">
-//               <Button size="small" icon={<CopyOutlined />} onClick={handleCopyLink}>
-//                 Copy Link
-//               </Button>
-//             </Tooltip>
-//           </div>
-//           <video
-//             ref={videoRef}
-//             autoPlay
-//             playsInline
-//             controls
-//             style={{ width: "100%", backgroundColor: "#000" }}
-//           />
-//           <Card className="watch-chat-box" style={{ marginTop: 20 }}>
-//             <Title level={4} className="chat-title">
-//               Live Chat
-//             </Title>
-//             <List
-//               className="chat-messages"
-//               dataSource={messages}
-//               renderItem={(msg, i) => (
-//                 <List.Item key={i}>
-//                   <strong>{msg.username}</strong>: {msg.message}{" "}
-//                   <em style={{ fontSize: "0.8em", color: "#999", marginLeft: 5 }}>
-//                     {msg.time}
-//                   </em>
-//                 </List.Item>
-//               )}
-//             />
-//             <div ref={chatEndRef} />
-//             <Space.Compact className="chat-input">
-//               <Input
-//                 placeholder="Type a message..."
-//                 value={messageInput}
-//                 onChange={(e) => setMessageInput(e.target.value)}
-//                 onPressEnter={sendMessage}
-//                 autoComplete="off"
-//               />
-//               <Button type="primary" icon={<SendOutlined />} onClick={sendMessage} />
-//             </Space.Compact>
-//           </Card>
-//         </>
-//       ) : (
-//         <>
-//           <Title level={4}>Loading stream…</Title>
-//           {error && <p style={{ color: "red" }}>{error}</p>}
-//         </>
-//       )}
-//     </Card>
-//   );
-// };
-
-// export default WatchStream;
-
-
-
-
-// WatchStream.jsx
-import React, { useEffect, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";          // ← import useNavigate
-import { Card, Typography, message, Input, Button, List, Space, Tooltip } from "antd";
-import { SendOutlined, CopyOutlined, LogoutOutlined } from "@ant-design/icons";  // ← import LogoutOutlined
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import PropTypes from "prop-types";
+import { useSelector } from "react-redux";
+import {
+  Card,
+  message,
+  Input,
+  Button,
+  List,
+  Space,
+  Tag,
+  Avatar,
+  Spin,
+  Alert,
+  Row,
+  Col,
+} from "antd";
+import {
+  SendOutlined,
+  CopyOutlined,
+  LogoutOutlined,
+  EyeOutlined,
+  FullscreenOutlined,
+  CompressOutlined,
+  CrownOutlined,
+} from "@ant-design/icons";
 import socket from "../../socket";
-import "./WatchStream.css";
+import { getIceServers } from "../../utils/iceServers";
 
-const { Title, Paragraph } = Typography;
+
 
 const WatchStream = () => {
   const { id } = useParams();
-  const navigate = useNavigate();                                    // ← initialize navigate
+  const navigate = useNavigate();
+  const currentUser = useSelector((s) => s.user.firebaseUser);
+
   const videoRef = useRef(null);
+  const videoContainerRef = useRef(null);
   const chatEndRef = useRef(null);
   const peerConnectionRef = useRef(null);
 
   const [streamInfo, setStreamInfo] = useState(null);
   const [messages, setMessages] = useState([]);
   const [messageInput, setMessageInput] = useState("");
+  const [connectionStatus, setConnectionStatus] = useState("connecting"); // connecting, live, ended
   const [error, setError] = useState("");
+  const [isTheaterMode, setIsTheaterMode] = useState(false);
+  const [viewerCount, setViewerCount] = useState(0);
 
-  const ICE_SERVERS = {
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:global.xirsys.net:3478" },
-      {
-        urls: "turn:global.xirsys.net:3478?transport=udp",
-        username: "Mani",
-        credential: "71742688-1f41-11f0-8c62-0242ac130003",
-      },
-      {
-        urls: "turn:global.xirsys.net:3478?transport=tcp",
-        username: "Mani",
-        credential: "71742688-1f41-11f0-8c62-0242ac130003",
-      },
-      {
-        urls: "turns:global.xirsys.net:443?transport=tcp",
-        username: "Mani",
-        credential: "71742688-1f41-11f0-8c62-0242ac130003",
-      },
-    ],
-  };
-
-  const setupPeerConnection = (streamerSocketId) => {
+  const setupPeerConnection = useCallback(async (streamerSocketId) => {
     if (peerConnectionRef.current) return;
 
-    const pc = new RTCPeerConnection(ICE_SERVERS);
-    peerConnectionRef.current = pc;
+    try {
+      const iceConfig = await getIceServers();
+      const pc = new RTCPeerConnection(iceConfig);
+      peerConnectionRef.current = pc;
 
-    // Log ICE states
-    pc.onicegatheringstatechange = () =>
-      console.log("[WebRTC][watcher] gathering state:", pc.iceGatheringState);
-    pc.oniceconnectionstatechange = () =>
-      console.log("[WebRTC][watcher] ice state:", pc.iceConnectionState);
-
-    pc.onicecandidate = (e) => {
-      if (e.candidate && streamerSocketId) {
-        socket.emit("ice-candidate", {
-          streamId: id,
-          candidate: e.candidate,
-          target: streamerSocketId,
-        });
-      }
-    };
-
-    pc.ontrack = (event) => {
-      if (videoRef.current && event.streams[0]) {
-        videoRef.current.srcObject = event.streams[0];
-      }
-    };
-
-    pc.onconnectionstatechange = () => {
-      console.log("[WebRTC] connectionState:", pc.connectionState);
-    };
-
-    // Handle offer → answer
-    socket.on("offer", async ({ offer, from }) => {
-      try {
-        await pc.setRemoteDescription(new RTCSessionDescription(offer));
-        const answer = await pc.createAnswer();
-        if (pc.signalingState === "have-remote-offer") {
-          await pc.setLocalDescription(answer);
-          socket.emit("answer", { streamId: id, answer, target: from });
+      pc.onicecandidate = (e) => {
+        if (e.candidate && streamerSocketId) {
+          socket.emit("ice-candidate", {
+            streamId: id,
+            candidate: e.candidate,
+            target: streamerSocketId,
+          });
         }
-      } catch (err) {
-        console.error("[WebRTC] error handling offer:", err);
-      }
-    });
+      };
 
-    socket.on("ice-candidate", async ({ candidate }) => {
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (e) {
-        console.error("[WebRTC] addIceCandidate failed:", e);
-      }
-    });
-  };
+      pc.ontrack = (event) => {
+        if (videoRef.current && event.streams[0]) {
+          videoRef.current.srcObject = event.streams[0];
+          setConnectionStatus("live");
+        }
+      };
 
-  // Clean up PC + video
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === "connected") {
+          setConnectionStatus("live");
+        } else if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+          setConnectionStatus("connecting");
+        }
+      };
+
+      socket.on("offer", async ({ offer, from }) => {
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(offer));
+          const answer = await pc.createAnswer();
+          if (pc.signalingState === "have-remote-offer") {
+            await pc.setLocalDescription(answer);
+            socket.emit("answer", { streamId: id, answer, target: from });
+          }
+        } catch (err) {
+          console.error("[WebRTC Watcher] error handling offer:", err);
+        }
+      });
+
+      socket.on("ice-candidate", async ({ candidate }) => {
+        try {
+          if (pc.remoteDescription) {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          }
+        } catch (e) {
+          console.error("[WebRTC Watcher] addIceCandidate failed:", e);
+        }
+      });
+    } catch (err) {
+      console.error("PeerConnection initialization error:", err);
+    }
+  }, [id]);
+
   const cleanupStream = () => {
     if (videoRef.current) videoRef.current.srcObject = null;
     if (peerConnectionRef.current) {
@@ -357,53 +116,66 @@ const WatchStream = () => {
     }
   };
 
-  // Emit leave + cleanup + navigate away
   const leaveStream = () => {
     socket.emit("leave-stream", { streamId: id });
     cleanupStream();
-    message.info("Left the stream");
-    navigate("/livestreamingplatform"); 
+    message.info("Left the stream room");
+    navigate("/livestreamingplatform");
   };
 
   useEffect(() => {
     socket.emit("join-stream", { streamId: id });
-    console.log("[Socket] join-stream emitted:", id);
 
-    socket.on("stream-info", (data) => {
+    const handleStreamInfo = (data) => {
       if (!data) {
+        setConnectionStatus("ended");
         setError("Stream not found or has ended.");
         return;
       }
       setStreamInfo(data);
-      message.success(`Joined stream: ${data.streamTitle}`);
+      if (data.viewers !== undefined) setViewerCount(data.viewers);
       setupPeerConnection(data.streamerSocketId);
-    });
+    };
 
-    socket.on("stop-stream", () => {
-      setError("The stream has been stopped.");
+    const handleViewerCount = ({ count }) => {
+      if (count !== undefined) setViewerCount(count);
+    };
+
+    const handleStopStream = () => {
+      setConnectionStatus("ended");
+      setError("The streamer has ended this broadcast.");
       cleanupStream();
-    });
-    socket.on("stream-ended", () => {
-      setError("The stream has ended.");
+    };
+
+    const handleStreamEnded = () => {
+      setConnectionStatus("ended");
+      setError("The broadcast has ended.");
       cleanupStream();
-    });
+    };
+
+    socket.on("stream-info", handleStreamInfo);
+    socket.on("viewer-count", handleViewerCount);
+    socket.on("stop-stream", handleStopStream);
+    socket.on("stream-ended", handleStreamEnded);
 
     return () => {
       socket.emit("leave-stream", { streamId: id });
-      socket.off("stream-info");
-      socket.off("stop-stream");
-      socket.off("stream-ended");
+      socket.off("stream-info", handleStreamInfo);
+      socket.off("viewer-count", handleViewerCount);
+      socket.off("stop-stream", handleStopStream);
+      socket.off("stream-ended", handleStreamEnded);
       socket.off("offer");
       socket.off("ice-candidate");
       cleanupStream();
     };
-  }, [id]);
+  }, [id, setupPeerConnection]);
 
   useEffect(() => {
-    socket.on("chat-message", (msg) => {
+    const handleChatMessage = (msg) => {
       setMessages((prev) => [...prev, msg]);
-    });
-    return () => socket.off("chat-message");
+    };
+    socket.on("chat-message", handleChatMessage);
+    return () => socket.off("chat-message", handleChatMessage);
   }, []);
 
   useEffect(() => {
@@ -412,88 +184,159 @@ const WatchStream = () => {
 
   const sendMessage = () => {
     if (!messageInput.trim()) return;
-    socket.emit("chat-message", {
+    const username = currentUser ? currentUser.displayName || currentUser.email : "Guest Viewer";
+    const msgData = {
       streamId: id,
-      userId: "Viewer",
-      username: "Viewer",
-      message: messageInput,
-      time: new Date().toLocaleTimeString(),
-    });
+      username,
+      message: messageInput.trim(),
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+    socket.emit("chat-message", msgData);
     setMessageInput("");
   };
 
   const handleCopyLink = () => {
     const link = `${window.location.origin}/livestreamingplatform/watch/${id}`;
-    navigator.clipboard.writeText(link).then(() => message.success("Copied link!"));
+    navigator.clipboard.writeText(link).then(() => message.success("Stream link copied to clipboard!"));
   };
 
   return (
-    <Card style={{ margin: "20px", position: "relative" }}>
-      <Button
-        icon={<LogoutOutlined />}
-        style={{ position: "absolute", top: 16, right: 16, zIndex: 10 }}
-        onClick={leaveStream}
-      >
-        Leave Stream
-      </Button>
+    <div className="max-w-7xl mx-auto space-y-6">
+      {/* Stream Info Bar */}
+      <div className="bg-card p-4 sm:p-6 rounded-2xl border border-border shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-extrabold text-navy mb-1">
+            {streamInfo ? streamInfo.streamTitle : "Connecting to stream..."}
+          </h2>
+          <div className="flex items-center gap-2">
+            {connectionStatus === "live" && (
+              <span className="bg-red-600 text-white text-xs font-bold px-2.5 py-0.5 rounded-md uppercase tracking-wider animate-pulse">
+                LIVE
+              </span>
+            )}
+            {connectionStatus === "connecting" && <Tag color="warning">Connecting...</Tag>}
+            {connectionStatus === "ended" && <Tag color="error">Stream Ended</Tag>}
 
-      {streamInfo && !error ? (
-        <>
-          <Title level={3}>{streamInfo.streamTitle}</Title>
-          <div style={{ marginBottom: 10 }}>
-            <Paragraph
-              copyable={{
-                text: `${window.location.origin}/livestreamingplatform/watch/${id}`,
-              }}
-              style={{ marginBottom: 4 }}
-            >
-              <strong>🔗 Share Stream:</strong>{" "}
-              {`${window.location.origin}/livestreamingplatform/watch/${id}`}
-            </Paragraph>
-            <Tooltip title="Copy full stream link">
-              <Button size="small" icon={<CopyOutlined />} onClick={handleCopyLink}>
-                Copy Link
-              </Button>
-            </Tooltip>
+            <Tag icon={<EyeOutlined />} color="purple" className="border-primary text-primary bg-primary/10">
+              {viewerCount} Watching
+            </Tag>
           </div>
-          <video ref={videoRef} autoPlay playsInline controls style={{ width: "100%", backgroundColor: "#000" }} />
-          <Card className="watch-chat-box" style={{ marginTop: 20 }}>
-            <Title level={4} className="chat-title">
-              Live Chat
-            </Title>
-            <List
-              className="chat-messages"
-              dataSource={messages}
-              renderItem={(msg, i) => (
-                <List.Item key={i}>
-                  <strong>{msg.username}</strong>: {msg.message}{" "}
-                  <em style={{ fontSize: "0.8em", color: "#999", marginLeft: 5 }}>
-                    {msg.time}
-                  </em>
-                </List.Item>
+        </div>
+
+        <Space size="middle">
+          <Button size="small" icon={<CopyOutlined />} onClick={handleCopyLink} className="border-border text-navy font-semibold rounded-lg hover:border-primary hover:text-primary">
+            Share
+          </Button>
+          <Button
+            size="small"
+            icon={isTheaterMode ? <CompressOutlined /> : <FullscreenOutlined />}
+            onClick={() => setIsTheaterMode(!isTheaterMode)}
+            className="border-border text-navy font-semibold rounded-lg hover:border-primary hover:text-primary"
+          >
+            {isTheaterMode ? "Normal View" : "Theater Mode"}
+          </Button>
+          <Button danger icon={<LogoutOutlined />} onClick={leaveStream} className="bg-red-600 hover:bg-red-700 text-white border-none font-semibold rounded-lg">
+            Leave
+          </Button>
+        </Space>
+      </div>
+
+      <Row gutter={[20, 20]}>
+        {/* Video Player Section */}
+        <Col xs={24} lg={isTheaterMode ? 24 : 16}>
+          <Card className="bg-card border border-border rounded-2xl overflow-hidden p-0 shadow-sm" variant="borderless">
+            <div className="relative w-full h-[380px] sm:h-[480px] bg-black flex items-center justify-center rounded-xl overflow-hidden" ref={videoContainerRef}>
+              <video ref={videoRef} autoPlay playsInline controls className="w-full h-full object-cover" />
+              {connectionStatus === "connecting" && (
+                <div className="absolute inset-0 bg-navy/90 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center text-white">
+                  <Spin size="large" />
+                  <p className="mt-4 text-sm font-medium text-text">Establishing WebRTC connection with streamer...</p>
+                </div>
               )}
-            />
-            <div ref={chatEndRef} />
-            <Space.Compact className="chat-input">
-              <Input
-                placeholder="Type a message..."
-                value={messageInput}
-                onChange={(e) => setMessageInput(e.target.value)}
-                onPressEnter={sendMessage}
-                autoComplete="off"
-              />
-              <Button type="primary" icon={<SendOutlined />} onClick={sendMessage} />
-            </Space.Compact>
+              {connectionStatus === "ended" && (
+                <div className="absolute inset-0 bg-navy/95 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center text-white">
+                  <Alert
+                    message="Stream Ended"
+                    description={error || "The streamer has ended the session."}
+                    type="error"
+                    showIcon
+                    className="max-w-md"
+                  />
+                  <Button type="primary" className="mt-4 bg-primary hover:bg-secondary border-none font-bold rounded-lg" onClick={() => navigate("/livestreamingplatform")}>
+                    Back to Browse
+                  </Button>
+                </div>
+              )}
+            </div>
           </Card>
-        </>
-      ) : (
-        <>
-          <Title level={4}>Loading stream…</Title>
-          {error && <p style={{ color: "red" }}>{error}</p>}
-        </>
-      )}
-    </Card>
+        </Col>
+
+        {/* Live Chat Sidebar */}
+        <Col xs={24} lg={isTheaterMode ? 24 : 8}>
+          <Card className="bg-card border border-border rounded-2xl shadow-sm flex flex-col h-[480px]" variant="borderless">
+            <div className="flex items-center justify-between pb-3 border-b border-border mb-3">
+              <span className="font-bold text-navy text-base">Live Chat</span>
+              <span className="text-xs bg-primary/10 text-primary font-bold px-2 py-0.5 rounded-full">{viewerCount} online</span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1 mb-3">
+              <List
+                dataSource={messages}
+                renderItem={(msg, idx) => {
+                  const isStreamerMsg = streamInfo && msg.username === streamInfo.streamerName;
+                  return (
+                    <div key={idx} className={`p-2.5 rounded-xl border text-xs ${isStreamerMsg ? "bg-primary/10 border-primary/30" : "bg-background border-border"}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-1.5">
+                          <Avatar size="small" className={isStreamerMsg ? "bg-secondary" : "bg-primary"}>
+                            {msg.username ? msg.username.charAt(0).toUpperCase() : "V"}
+                          </Avatar>
+                          <span className="font-bold text-navy">{msg.username}</span>
+                          {isStreamerMsg && (
+                            <Tag color="magenta" icon={<CrownOutlined />} className="text-[10px] m-0 px-1 py-0 border-none">
+                              Host
+                            </Tag>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-text">{msg.time}</span>
+                      </div>
+                      <div className="text-text font-normal">{msg.message}</div>
+                    </div>
+                  );
+                }}
+              />
+              <div ref={chatEndRef} />
+            </div>
+
+            <div className="pt-2 border-t border-border">
+              <Space.Compact style={{ width: "100%" }}>
+                <Input
+                  placeholder="Send a message..."
+                  value={messageInput}
+                  onChange={(e) => setMessageInput(e.target.value)}
+                  onPressEnter={sendMessage}
+                  autoComplete="off"
+                  disabled={connectionStatus === "ended"}
+                  className="rounded-l-lg border-border"
+                />
+                <Button
+                  type="primary"
+                  icon={<SendOutlined />}
+                  onClick={sendMessage}
+                  disabled={connectionStatus === "ended"}
+                  className="bg-primary hover:bg-secondary border-none rounded-r-lg"
+                />
+              </Space.Compact>
+            </div>
+          </Card>
+        </Col>
+      </Row>
+    </div>
   );
+};
+
+WatchStream.propTypes = {
+  streamId: PropTypes.string,
 };
 
 export default WatchStream;

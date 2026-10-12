@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import PropTypes from "prop-types";
 import { useSelector, useDispatch } from "react-redux";
 import { setIsStreaming, setStreamTitle } from "../Redux/streamSlice.js";
 import {
@@ -6,539 +7,623 @@ import {
   Card,
   Space,
   message,
-  Typography,
   Input,
   Row,
   Col,
   List,
+  Modal,
+  Select,
+  Tag,
+  Avatar,
+  Tooltip,
 } from "antd";
 import {
   VideoCameraOutlined,
   StopOutlined,
   SendOutlined,
-  FullscreenOutlined,
-  FullscreenExitOutlined,
-  SoundOutlined,
-  SoundFilled,
-  VideoCameraOutlined as CameraOnIcon,
-  VideoCameraAddOutlined as CameraOffIcon,
+  AudioOutlined,
+  AudioMutedOutlined,
   DesktopOutlined,
+  EyeOutlined,
+  SettingOutlined,
+  CrownOutlined,
+  CopyOutlined,
 } from "@ant-design/icons";
 import socket from "../../socket";
-import "./Startstreaming.css";
+import { getIceServers } from "../../utils/iceServers";
 
-const { Title } = Typography;
+const { Option } = Select;
 
 const StartStreaming = () => {
   const dispatch = useDispatch();
   const firebaseUser = useSelector((s) => s.user.firebaseUser);
-  const reduxStreaming = useSelector((s) => s.stream.isStreaming);
-  const reduxTitle = useSelector((s) => s.stream.streamTitle);
-  const isStreaming =
-    reduxStreaming || localStorage.getItem("isStreaming") === "true";
-  const streamTitle =
-    reduxTitle || localStorage.getItem("streamTitle") || "";
+  const isStreaming = useSelector((s) => s.stream.isStreaming);
+  const streamTitle = useSelector((s) => s.stream.streamTitle);
 
   const videoRef = useRef(null);
   const chatEndRef = useRef(null);
-  const peerConnectionRef = useRef(null);
   const peerConnections = useRef(new Map());
 
-  const [stream, setStream] = useState(null);
+  const [localStream, setLocalStream] = useState(null);
   const [origVideoTrack, setOrigVideoTrack] = useState(null);
   const [messages, setMessages] = useState([]);
   const [messageInput, setMessageInput] = useState("");
-  const [isFullScreen, setIsFullScreen] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [viewerCount, setViewerCount] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [inputTitle, setInputTitle] = useState(streamTitle || "");
+  const [streamDuration, setStreamDuration] = useState(0);
 
-  const ICE_SERVERS = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },         
-    { urls: "stun:global.xirsys.net:3478" },        
-    {                                                
-      urls: "turn:global.xirsys.net:3478?transport=udp",
-      username: "Mani",
-      credential: "71742688-1f41-11f0-8c62-0242ac130003",
-    },
-    {                                                
-      urls: "turn:global.xirsys.net:3478?transport=tcp",
-      username: "Mani",
-      credential: "71742688-1f41-11f0-8c62-0242ac130003",
-    },
-    {                                                
-      urls: "turns:global.xirsys.net:443?transport=tcp",
-      username: "Mani",
-      credential: "71742688-1f41-11f0-8c62-0242ac130003",
-    },
-  ],
-};
+  // Pre-stream Device Selection state
+  const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
+  const [videoDevices, setVideoDevices] = useState([]);
+  const [audioDevices, setAudioDevices] = useState([]);
+  const [selectedVideoDevice, setSelectedVideoDevice] = useState("");
+  const [selectedAudioDevice, setSelectedAudioDevice] = useState("");
+  const [deviceCheckStream, setDeviceCheckStream] = useState(null);
+  const previewVideoRef = useRef(null);
 
-
+  // Timer effect for live stream duration
   useEffect(() => {
-    if (reduxStreaming) localStorage.setItem("isStreaming", "true");
-    else localStorage.removeItem("isStreaming");
-  }, [reduxStreaming]);
+    let timer;
+    if (isStreaming) {
+      timer = setInterval(() => setStreamDuration((prev) => prev + 1), 1000);
+    } else {
+      setStreamDuration(0);
+    }
+    return () => clearInterval(timer);
+  }, [isStreaming]);
 
-  useEffect(() => {
-    if (reduxTitle) localStorage.setItem("streamTitle", reduxTitle);
-    else localStorage.removeItem("streamTitle");
-  }, [reduxTitle]);
+  const formatDuration = (seconds) => {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hrs > 0 ? `${hrs}:` : ""}${mins < 10 ? "0" : ""}${mins}:${secs < 10 ? "0" : ""}${secs}`;
+  };
 
-  useEffect(() => {
-    socket.on("chat-message", (msg) => {
-      console.log("[Socket] chat-message:", msg);
-      setMessages((prev) => [...prev, msg]);
-    });
+  // Enumerate Media Devices for Pre-stream Check
+  const getDevices = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const vDevs = devices.filter((d) => d.kind === "videoinput");
+      const aDevs = devices.filter((d) => d.kind === "audioinput");
+      setVideoDevices(vDevs);
+      setAudioDevices(aDevs);
+      if (vDevs.length > 0 && !selectedVideoDevice) setSelectedVideoDevice(vDevs[0].deviceId);
+      if (aDevs.length > 0 && !selectedAudioDevice) setSelectedAudioDevice(aDevs[0].deviceId);
+    } catch (err) {
+      console.warn("Error enumerating devices:", err);
+    }
+  };
 
-    socket.on("answer", async ({ answer, from }) => {
-      console.log(`[Socket] answer from viewer ${from}:`, answer);
-      const pc = peerConnections.current.get(from);
-      if (pc) {
-        await pc.setRemoteDescription(new RTCSessionDescription(answer));
-        console.log(`[WebRTC] setRemoteDescription on PC[${from}]`);
-      }
-    });
+  const openDeviceCheck = async () => {
+    setIsDeviceModalOpen(true);
+    try {
+      const initStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      setDeviceCheckStream(initStream);
+      if (previewVideoRef.current) previewVideoRef.current.srcObject = initStream;
+      await getDevices();
+    } catch (err) {
+      console.warn("Permission error on getUserMedia:", err);
+      message.error("Camera and microphone permissions are required for streaming.");
+    }
+  };
 
-    socket.on("ice-candidate", async ({ candidate, from }) => {
-      console.log(`[Socket] ice-candidate from ${from}:`, candidate);
-      const pc = peerConnections.current.get(from);
-      if (pc) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-          console.log(`[WebRTC] added ICE candidate on PC[${from}]`);
-        } catch (e) {
-          console.error(`[WebRTC] PC[${from}] addIceCandidate failed`, e);
-        }
-      }
-    });
+  const closeDeviceCheck = () => {
+    if (deviceCheckStream) {
+      deviceCheckStream.getTracks().forEach((t) => t.stop());
+      setDeviceCheckStream(null);
+    }
+    setIsDeviceModalOpen(false);
+  };
 
-    socket.on("update-streams", (streams) => {
-      const mine = streams.find((s) => s.streamerId === firebaseUser?.uid);
-      setViewerCount(mine?.viewers || 0);
-      console.log("[Socket] update-streams, new count:", mine?.viewers);
-    });
-
-    socket.on("viewer-joined", async ({ streamId, viewerId }) => {
-      if (streamId !== firebaseUser?.uid) return;
-      console.log(`[Socket] viewer-joined: ${viewerId}. Creating PC…`);
-
-      const pc = new RTCPeerConnection(ICE_SERVERS);
-      {
-        const pc = peerConnectionRef.current;
-        pc.onicegatheringstatechange = () =>
-          console.log("[WebRTC][start] gathering state:", pc.iceGatheringState);
-        pc.oniceconnectionstatechange = () =>
-          console.log("[WebRTC][start] ice state:", pc.iceConnectionState);
-      }
-
-      pc.onconnectionstatechange = () => {
-        console.log(
-          `[WebRTC] connectionState for ${viewerId}:`,
-          pc.connectionState
-        );
+  const handleDeviceChange = async (videoDevId, audioDevId) => {
+    if (deviceCheckStream) {
+      deviceCheckStream.getTracks().forEach((t) => t.stop());
+    }
+    try {
+      const constraints = {
+        video: videoDevId ? { deviceId: { exact: videoDevId } } : true,
+        audio: audioDevId ? { deviceId: { exact: audioDevId } } : true,
       };
+      const newStream = await navigator.mediaDevices.getUserMedia(constraints);
+      setDeviceCheckStream(newStream);
+      if (previewVideoRef.current) previewVideoRef.current.srcObject = newStream;
+    } catch (err) {
+      console.warn("Error switching media device:", err);
+      message.error("Failed to switch media device.");
+    }
+  };
+
+  // WebRTC Peer Connection Helper
+  const createPeerConnection = useCallback(
+    async (viewerSocketId, activeStream) => {
+      if (peerConnections.current.has(viewerSocketId)) {
+        return peerConnections.current.get(viewerSocketId);
+      }
+
+      const iceConfig = await getIceServers();
+      const pc = new RTCPeerConnection(iceConfig);
+      peerConnections.current.set(viewerSocketId, pc);
+
+      if (activeStream) {
+        activeStream.getTracks().forEach((track) => pc.addTrack(track, activeStream));
+      }
+
       pc.onicecandidate = (e) => {
         if (e.candidate) {
-          console.log(`[WebRTC] sending ICE to ${viewerId}:`, e.candidate);
           socket.emit("ice-candidate", {
-            streamId: firebaseUser.uid,
+            streamId: firebaseUser?.uid,
             candidate: e.candidate,
-            target: viewerId,
+            target: viewerSocketId,
           });
         }
       };
 
-      stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+          pc.close();
+          peerConnections.current.delete(viewerSocketId);
+        }
+      };
 
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      console.log(`[WebRTC] offer created for ${viewerId}:`, offer);
+      return pc;
+    },
+    [firebaseUser?.uid]
+  );
 
-      socket.emit("offer", {
-        streamId: firebaseUser.uid,
-        offer,
-        target: viewerId,
+  // Start Streaming Execution
+  const handleStartStream = async () => {
+    if (!inputTitle.trim()) {
+      return message.warning("Please enter a stream title before going live!");
+    }
+
+    try {
+      closeDeviceCheck();
+      const constraints = {
+        video: selectedVideoDevice ? { deviceId: { exact: selectedVideoDevice } } : true,
+        audio: selectedAudioDevice ? { deviceId: { exact: selectedAudioDevice } } : true,
+      };
+
+      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      setLocalStream(mediaStream);
+      setOrigVideoTrack(mediaStream.getVideoTracks()[0]);
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+      }
+
+      dispatch(setIsStreaming(true));
+      dispatch(setStreamTitle(inputTitle));
+
+      const streamerId = firebaseUser?.uid || socket.id;
+      const streamerName = firebaseUser?.displayName || firebaseUser?.email || "Anonymous Streamer";
+      const profilePic = firebaseUser?.photoURL || "";
+
+      socket.emit("start-stream", {
+        streamTitle: inputTitle,
+        streamerId,
+        streamerName,
+        profilePic,
       });
-      console.log(`[Socket] offer emitted to ${viewerId}`);
 
-      peerConnections.current.set(viewerId, pc);
-    });
+      message.success("🔴 You are now live!");
+    } catch (err) {
+      console.error("Media error starting stream:", err);
+      message.error("Failed to access media devices. Please grant camera/microphone permissions.");
+    }
+  };
+
+  // Stop Stream Execution
+  const handleStopStream = () => {
+    socket.emit("stop-stream");
+
+    if (localStream) {
+      localStream.getTracks().forEach((t) => t.stop());
+      setLocalStream(null);
+    }
+
+    peerConnections.current.forEach((pc) => pc.close());
+    peerConnections.current.clear();
+
+    dispatch(setIsStreaming(false));
+    dispatch(setStreamTitle(""));
+    setIsScreenSharing(false);
+    setIsCameraOn(true);
+    setIsMuted(false);
+
+    message.info("Stream ended successfully");
+  };
+
+  // WebRTC Signaling Handlers
+  useEffect(() => {
+    const handleViewerJoined = async ({ viewerId }) => {
+      if (!localStream) return;
+      try {
+        const pc = await createPeerConnection(viewerId, localStream);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit("offer", { streamId: firebaseUser?.uid, offer, target: viewerId });
+      } catch (err) {
+        console.error("Error connecting viewer:", err);
+      }
+    };
+
+    const handleAnswer = async ({ answer, from }) => {
+      const pc = peerConnections.current.get(from);
+      if (pc && pc.signalingState === "have-local-offer") {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      }
+    };
+
+    const handleIceCandidate = async ({ candidate, from }) => {
+      const pc = peerConnections.current.get(from);
+      if (pc && pc.remoteDescription) {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+    };
+
+    const handleViewerCount = ({ count }) => {
+      if (count !== undefined) setViewerCount(count);
+    };
+
+    socket.on("viewer-joined", handleViewerJoined);
+    socket.on("answer", handleAnswer);
+    socket.on("ice-candidate", handleIceCandidate);
+    socket.on("viewer-count", handleViewerCount);
 
     return () => {
-      socket.off("chat-message");
-      socket.off("answer");
-      socket.off("ice-candidate");
-      socket.off("update-streams");
-      socket.off("viewer-joined");
+      socket.off("viewer-joined", handleViewerJoined);
+      socket.off("answer", handleAnswer);
+      socket.off("ice-candidate", handleIceCandidate);
+      socket.off("viewer-count", handleViewerCount);
     };
-  }, [firebaseUser, stream]);
+  }, [localStream, createPeerConnection, firebaseUser?.uid]);
+
+  // Chat message listener
+  useEffect(() => {
+    const handleChatMessage = (msg) => {
+      setMessages((prev) => [...prev, msg]);
+    };
+    socket.on("chat-message", handleChatMessage);
+    return () => socket.off("chat-message", handleChatMessage);
+  }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  useEffect(() => {
-    const rejoin = async () => {
-      console.log("[WebRTC] rejoin-stream invoked for:", firebaseUser?.uid);
-      try {
-        const mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true,
-        });
-        console.log("[Media] obtained userMedia for rejoin");
-        videoRef.current.srcObject = mediaStream;
-        setStream(mediaStream);
-        setOrigVideoTrack(mediaStream.getVideoTracks()[0]);
-
-        peerConnectionRef.current = new RTCPeerConnection(ICE_SERVERS);
-        {
-          const pc = peerConnectionRef.current;
-          pc.onicegatheringstatechange = () =>
-            console.log("[WebRTC][start] gathering state:", pc.iceGatheringState);
-          pc.oniceconnectionstatechange = () =>
-            console.log("[WebRTC][start] ice state:", pc.iceConnectionState);
-        }
-        console.log(
-          "[WebRTC] RTCPeerConnection created for rejoin:",
-          peerConnectionRef.current
-        );
-
-        peerConnectionRef.current.onconnectionstatechange = () => {
-          console.log(
-            "[WebRTC] connectionState (rejoin):",
-            peerConnectionRef.current.connectionState
-          );
-        };
-
-        peerConnectionRef.current.ontrack = (e) => {
-          console.log("[WebRTC] track event (rejoin):", e);
-          videoRef.current.srcObject = e.streams[0];
-        };
-
-        mediaStream
-          .getTracks()
-          .forEach((t) => peerConnectionRef.current.addTrack(t, mediaStream));
-        peerConnectionRef.current.onicecandidate = (e) => {
-          if (e.candidate) {
-            console.log(
-              "[WebRTC] sending ICE candidate (rejoin):",
-              e.candidate
-            );
-            socket.emit("ice-candidate", {
-              streamId: firebaseUser?.uid,
-              candidate: e.candidate,
-            });
-          }
-        };
-
-        socket.emit("rejoin-stream", { streamerId: firebaseUser?.uid });
-        console.log("[Socket] rejoin-stream emitted for:", firebaseUser?.uid);
-        message.success("Rejoined stream");
-      } catch (err) {
-        console.error("Rejoin failed", err);
-        message.error("Failed to rejoin stream");
-      }
-    };
-
-    if (isStreaming && !peerConnectionRef.current) {
-      dispatch(setIsStreaming(true));
-      dispatch(setStreamTitle(streamTitle));
-      rejoin();
-    }
-  }, [isStreaming, streamTitle, dispatch, firebaseUser]);
-
-  const toggleFullScreen = () => {
-    console.log("[UI] toggle fullscreen:", !isFullScreen);
-    if (!isFullScreen && videoRef.current) videoRef.current.requestFullscreen();
-    else document.exitFullscreen();
-    setIsFullScreen((prev) => !prev);
+  const sendMessage = () => {
+    if (!messageInput.trim()) return;
+    const username = firebaseUser ? firebaseUser.displayName || firebaseUser.email : "Streamer";
+    socket.emit("chat-message", {
+      streamId: firebaseUser?.uid,
+      username,
+      message: messageInput.trim(),
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    });
+    setMessageInput("");
   };
 
+  // Audio/Camera/Screen Controls
   const toggleMute = () => {
-    console.log("[UI] toggle mute:", !isMuted);
-    if (stream) {
-      stream.getAudioTracks().forEach((track) => (track.enabled = !track.enabled));
-      setIsMuted((prev) => !prev);
+    if (localStream) {
+      const audioTrack = localStream.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        setIsMuted(!audioTrack.enabled);
+      }
     }
   };
 
   const toggleCamera = () => {
-    console.log("[UI] toggle camera:", !isCameraOn);
-    if (stream) {
-      stream.getVideoTracks().forEach((track) => (track.enabled = !track.enabled));
-      setIsCameraOn((prev) => !prev);
+    if (localStream) {
+      const videoTrack = localStream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.enabled = !videoTrack.enabled;
+        setIsCameraOn(videoTrack.enabled);
+      }
     }
   };
 
   const toggleScreenShare = async () => {
-    console.log("[UI] toggle screen share");
-    try {
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-      console.log("[Media] obtained displayMedia for screen share");
-      const screenTrack = screenStream.getVideoTracks()[0];
-      const allAudioTracks = stream.getAudioTracks();
-
-      peerConnections.current.forEach((pc, viewerId) => {
-        const sender = pc.getSenders().find((s) => s.track.kind === "video");
-        if (sender) {
-          console.log(`[WebRTC] replacing video track for viewer ${viewerId}`);
-          sender.replaceTrack(screenTrack);
-        }
-      });
-  
-      const primarySender = peerConnectionRef.current
-        ?.getSenders()
-        .find((s) => s.track.kind === "video");
-      if (primarySender) {
-        primarySender.replaceTrack(screenTrack);
-        console.log("[WebRTC] replaced primary video track with screen");
-      }
-        videoRef.current.srcObject = new MediaStream([ screenTrack, ...allAudioTracks ]);
-      setIsScreenSharing(true);
-      message.success("Screen sharing started");
-  
-      screenTrack.onended = () => {
-        console.log("[Media] screen sharing ended, restoring original track");
-        peerConnections.current.forEach((pc, viewerId) => {
-          const sender = pc.getSenders().find((s) => s.track.kind === "video");
-          if (sender && origVideoTrack) {
-            console.log(`[WebRTC] restoring video track for viewer ${viewerId}`);
-            sender.replaceTrack(origVideoTrack);
-          }
+    if (!isStreaming || !localStream) return;
+    if (isScreenSharing) {
+      if (origVideoTrack) {
+        const sender = localStream.getVideoTracks()[0];
+        localStream.removeTrack(sender);
+        localStream.addTrack(origVideoTrack);
+        if (videoRef.current) videoRef.current.srcObject = localStream;
+        peerConnections.current.forEach((pc) => {
+          const senders = pc.getSenders();
+          const s = senders.find((sns) => sns.track?.kind === "video");
+          if (s) s.replaceTrack(origVideoTrack);
         });
-        if (primarySender && origVideoTrack) {
-          primarySender.replaceTrack(origVideoTrack);
-        }
-        videoRef.current.srcObject = stream;  
-        setIsScreenSharing(false);
-        message.success("Screen sharing stopped");
-      };
-    } catch (err) {
-      console.error("Screen share error:", err);
-      message.error("Failed to share screen");
-    }
-  };  
-
-  const startStream = async () => {
-    if (!streamTitle.trim()) return message.warning("Enter a stream title");
-    console.log("[Action] startStream clicked with title:", streamTitle);
-    try {
-      setIsLoading(true);
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
-      console.log("[Media] obtained userMedia for startStream");
-      videoRef.current.srcObject = mediaStream;
-      setStream(mediaStream);
-      setOrigVideoTrack(mediaStream.getVideoTracks()[0]);
-      dispatch(setIsStreaming(true));
-      dispatch(setStreamTitle(streamTitle));
-      message.success("Streaming started");
-
-      peerConnectionRef.current = new RTCPeerConnection(ICE_SERVERS);
-      {
-        const pc = peerConnectionRef.current;
-        pc.onicegatheringstatechange = () =>
-          console.log("[WebRTC][start] gathering state:", pc.iceGatheringState);
-        pc.oniceconnectionstatechange = () =>
-          console.log("[WebRTC][start] ice state:", pc.iceConnectionState);
       }
-      console.log(
-        "[WebRTC] RTCPeerConnection created for startStream:",
-        peerConnectionRef.current
-      );
+      setIsScreenSharing(false);
+    } else {
+      try {
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        const screenTrack = screenStream.getVideoTracks()[0];
+        const currentVideo = localStream.getVideoTracks()[0];
 
-      peerConnectionRef.current.onconnectionstatechange = () => {
-        console.log(
-          "[WebRTC] connectionState (start):",
-          peerConnectionRef.current.connectionState
-        );
-      };
+        localStream.removeTrack(currentVideo);
+        localStream.addTrack(screenTrack);
+        if (videoRef.current) videoRef.current.srcObject = localStream;
 
-      peerConnectionRef.current.ontrack = (e) => {
-        console.log("[WebRTC] track event (start):", e);
-        videoRef.current.srcObject = e.streams[0];
-      };
+        peerConnections.current.forEach((pc) => {
+          const senders = pc.getSenders();
+          const s = senders.find((sns) => sns.track?.kind === "video");
+          if (s) s.replaceTrack(screenTrack);
+        });
 
-      mediaStream
-        .getTracks()
-        .forEach((t) => peerConnectionRef.current.addTrack(t, mediaStream));
-      peerConnectionRef.current.onicecandidate = (e) => {
-        if (e.candidate) {
-          console.log("[WebRTC] sending ICE candidate (start):", e.candidate);
-          socket.emit("ice-candidate", {
-            streamId: firebaseUser?.uid || "Guest",
-            candidate: e.candidate,
-          });
-        }
-      };
-
-      const offer = await peerConnectionRef.current.createOffer();
-      console.log("[WebRTC] offer created:", offer);
-      await peerConnectionRef.current.setLocalDescription(offer);
-      console.log(
-        "[WebRTC] local description set:",
-        peerConnectionRef.current.localDescription
-      );
-
-      socket.emit("offer", { streamId: firebaseUser?.uid || "Guest", offer });
-      console.log("[Socket] offer emitted:", offer);
-
-      socket.emit("start-stream", {
-        streamTitle,
-        streamerId: firebaseUser?.uid || "Guest",
-        streamerName: firebaseUser?.displayName || "Guest",
-        profilePic: firebaseUser?.photoURL || null,
-      });
-      console.log(
-        "[Socket] start-stream emitted for:",
-        firebaseUser?.uid || "Guest"
-      );
-    } catch (err) {
-      console.error("Start stream error:", err);
-      message.error("Unable to start stream (camera/mic permission?)");
-    } finally {
-      setIsLoading(false);
+        screenTrack.onended = () => {
+          toggleScreenShare();
+        };
+        setIsScreenSharing(true);
+      } catch (err) {
+        console.warn("Screen share error:", err);
+        message.error("Screen sharing canceled or failed.");
+      }
     }
   };
 
-  const stopStream = () => {
-    console.log("[Action] stopStream clicked");
-    stream?.getTracks().forEach((t) => t.stop());
-    peerConnectionRef.current?.close();
-    peerConnectionRef.current = null;
-    dispatch(setIsStreaming(false));
-    dispatch(setStreamTitle(""));
-    localStorage.removeItem("isStreaming");
-    localStorage.removeItem("streamTitle");
-    setStream(null);
-    setOrigVideoTrack(null);
-    setIsCameraOn(true);
-    setIsMuted(false);
-    setIsScreenSharing(false);
-    setViewerCount(0);
-    if (videoRef.current) videoRef.current.srcObject = null;
-    socket.emit("stop-stream", { streamerId: firebaseUser?.uid || "Guest" });
-    console.log(
-      "[Socket] stop-stream emitted for:",
-      firebaseUser?.uid || "Guest"
-    );
-    message.info("Stream stopped");
+  const handleCopyLink = () => {
+    const link = `${window.location.origin}/livestreamingplatform/watch/${firebaseUser?.uid}`;
+    navigator.clipboard.writeText(link).then(() => message.success("Stream watch link copied!"));
   };
-
-  const sendMessage = useCallback(() => {
-    if (messageInput.trim()) {
-      const chatData = {
-        streamId: firebaseUser?.uid || "Guest",
-        userId: firebaseUser?.uid || "Guest",
-        username: firebaseUser?.displayName || "Guest",
-        message: messageInput,
-        time: new Date().toLocaleTimeString(),
-      };
-      console.log("[Socket] sending chat-message:", chatData);
-      socket.emit("chat-message", chatData);
-      setMessageInput("");
-    }
-  }, [messageInput, firebaseUser]);
 
   return (
-    <Row justify="center" gutter={[16, 16]} className="start-streaming-container">
-      <Col xs={24} md={16}>
-        <Card className="stream-card">
-{/*           <Title level={3}>
-           Live Streaming {isStreaming && `• ${viewerCount} watching`}
-          </Title> */}
-          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-            <Input
-              placeholder="Enter Stream Title"
-              value={streamTitle}
-              onChange={(e) => dispatch(setStreamTitle(e.target.value))}
-              size="large"
-              disabled={!firebaseUser}
-              autoComplete="off"
-            />
-            <video
-              ref={videoRef}
-              className="stream-video"
-              autoPlay
-              playsInline
-              muted
-            />
-            {error && <p className="error-text">{error}</p>}
-            <Space wrap>
-              {!isStreaming ? (
-                <Button
-                  type="primary"
-                  icon={<VideoCameraOutlined />}
-                  size="large"
-                  onClick={startStream}
-                  loading={isLoading}
-                  disabled={!firebaseUser}
-                >
-                  Start
-                </Button>
-              ) : (
-                <Button
-                  type="danger"
-                  icon={<StopOutlined />}
-                  size="large"
-                  onClick={stopStream}
-                >
-                  Stop Streaming
-                </Button>
-              )}
-            </Space>
-            {isStreaming && (
-              <Space wrap>
-                <Button onClick={toggleFullScreen}>
-                  {isFullScreen ? (
-                    <FullscreenExitOutlined />
-                  ) : (
-                    <FullscreenOutlined />
-                  )}
-                </Button>
-                <Button onClick={toggleMute}>
-                  {isMuted ? <SoundOutlined /> : <SoundFilled />}
-                </Button>
-                <Button onClick={toggleCamera}>
-                  {isCameraOn ? <CameraOnIcon /> : <CameraOffIcon />}
-                </Button>
-                <Button onClick={toggleScreenShare} icon={<DesktopOutlined />} />
-              </Space>
-            )}
-            {isStreaming && (
+    <div className="max-w-7xl mx-auto space-y-6">
+      {/* Stream Controls Header */}
+      <div className="bg-card p-4 sm:p-6 rounded-2xl border border-border shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-extrabold text-navy mb-1">
+            {isStreaming ? streamTitle : "Stream Studio"}
+          </h2>
+          <div className="flex items-center gap-2">
+            {isStreaming ? (
               <>
+                <span className="bg-red-600 text-white text-xs font-bold px-2.5 py-0.5 rounded-md uppercase tracking-wider animate-pulse">
+                  LIVE
+                </span>
+                <Tag icon={<EyeOutlined />} color="purple" className="border-primary text-primary bg-primary/10">
+                  {viewerCount} Viewers
+                </Tag>
+                <Tag color="blue">Duration: {formatDuration(streamDuration)}</Tag>
+              </>
+            ) : (
+              <Tag color="default">Offline</Tag>
+            )}
+          </div>
+        </div>
+
+        <Space size="middle">
+          {!isStreaming ? (
+            <>
+              <Button icon={<SettingOutlined />} onClick={openDeviceCheck} className="border-border text-navy font-semibold rounded-lg hover:border-primary hover:text-primary">
+                Device Setup
+              </Button>
+              <Button type="primary" icon={<VideoCameraOutlined />} onClick={openDeviceCheck} className="bg-primary hover:bg-secondary text-white border-none font-semibold rounded-lg shadow-md">
+                Go Live
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button size="small" icon={<CopyOutlined />} onClick={handleCopyLink} className="border-border text-navy font-semibold rounded-lg hover:border-primary hover:text-primary">
+                Share Link
+              </Button>
+              <Button type="primary" danger icon={<StopOutlined />} onClick={handleStopStream} className="bg-red-600 hover:bg-red-700 border-none font-semibold rounded-lg">
+                End Stream
+              </Button>
+            </>
+          )}
+        </Space>
+      </div>
+
+      <Row gutter={[20, 20]}>
+        {/* Studio Video Viewport */}
+        <Col xs={24} lg={16}>
+          <Card className="bg-card border border-border rounded-2xl overflow-hidden p-0 shadow-sm" variant="borderless">
+            <div className="relative w-full h-[380px] sm:h-[480px] bg-black flex items-center justify-center rounded-xl overflow-hidden">
+              <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+
+              {!isStreaming && (
+                <div className="absolute inset-0 bg-navy/90 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center text-white">
+                  <VideoCameraOutlined className="text-5xl text-primary mb-4" />
+                  <h3 className="text-2xl font-extrabold text-white mb-2">
+                    Ready to Stream?
+                  </h3>
+                  <p className="text-text text-sm max-w-md mb-6">
+                    Configure your camera and microphone, set a title, and broadcast in sub-second WebRTC quality.
+                  </p>
+                  <Button type="primary" size="large" icon={<VideoCameraOutlined />} onClick={openDeviceCheck} className="bg-primary hover:bg-secondary text-white border-none font-bold rounded-xl px-6 h-12 shadow-lg">
+                    Setup & Start Stream
+                  </Button>
+                </div>
+              )}
+
+              {/* Controls Bar Overlay */}
+              {isStreaming && (
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-navy/80 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 flex items-center gap-3">
+                  <Tooltip title={isMuted ? "Unmute Mic" : "Mute Mic"}>
+                    <Button
+                      shape="circle"
+                      icon={isMuted ? <AudioMutedOutlined className="text-red-500" /> : <AudioOutlined className="text-white" />}
+                      onClick={toggleMute}
+                      className="bg-darkPurple/80 border-border hover:border-primary"
+                    />
+                  </Tooltip>
+                  <Tooltip title={isCameraOn ? "Turn Off Camera" : "Turn On Camera"}>
+                    <Button
+                      shape="circle"
+                      icon={<VideoCameraOutlined className={isCameraOn ? "text-white" : "text-red-500"} />}
+                      onClick={toggleCamera}
+                      className="bg-darkPurple/80 border-border hover:border-primary"
+                    />
+                  </Tooltip>
+                  <Tooltip title={isScreenSharing ? "Stop Screen Share" : "Share Screen"}>
+                    <Button
+                      shape="circle"
+                      icon={<DesktopOutlined className={isScreenSharing ? "text-secondary" : "text-white"} />}
+                      onClick={toggleScreenShare}
+                      className="bg-darkPurple/80 border-border hover:border-primary"
+                    />
+                  </Tooltip>
+                </div>
+              )}
+            </div>
+          </Card>
+        </Col>
+
+        {/* Studio Live Chat Panel */}
+        <Col xs={24} lg={8}>
+          <Card className="bg-card border border-border rounded-2xl shadow-sm flex flex-col h-[480px]" variant="borderless">
+            <div className="flex items-center justify-between pb-3 border-b border-border mb-3">
+              <span className="font-bold text-navy text-base">Stream Chat</span>
+              <span className="text-xs bg-primary/10 text-primary font-bold px-2 py-0.5 rounded-full">{viewerCount} viewers</span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1 mb-3">
+              {messages.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-center text-xs text-text p-4">
+                  <span>Chat messages will appear here once viewers join and message.</span>
+                </div>
+              ) : (
                 <List
-                  bordered
                   dataSource={messages}
-                  className="chat-box"
-                  renderItem={(item) => (
-                    <List.Item>
-                      <strong>{item.username}</strong>: {item.message}
-                    </List.Item>
-                  )}
+                  renderItem={(msg, idx) => {
+                    const isHost = firebaseUser && (msg.username === firebaseUser.displayName || msg.username === firebaseUser.email);
+                    return (
+                      <div key={idx} className={`p-2.5 rounded-xl border text-xs ${isHost ? "bg-primary/10 border-primary/30" : "bg-background border-border"}`}>
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-1.5">
+                            <Avatar size="small" className={isHost ? "bg-secondary" : "bg-primary"}>
+                              {msg.username ? msg.username.charAt(0).toUpperCase() : "S"}
+                            </Avatar>
+                            <span className="font-bold text-navy">{msg.username}</span>
+                            {isHost && (
+                              <Tag color="magenta" icon={<CrownOutlined />} className="text-[10px] m-0 px-1 py-0 border-none">
+                                Host
+                              </Tag>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-text">{msg.time}</span>
+                        </div>
+                        <div className="text-text font-normal">{msg.message}</div>
+                      </div>
+                    );
+                  }}
                 />
-                <div ref={chatEndRef} />
-                <Input.Search
-                  placeholder="Type a message..."
-                  enterButton={<SendOutlined />}
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            <div className="pt-2 border-t border-border">
+              <Space.Compact style={{ width: "100%" }}>
+                <Input
+                  placeholder="Send chat as host..."
                   value={messageInput}
                   onChange={(e) => setMessageInput(e.target.value)}
-                  onSearch={sendMessage}
+                  onPressEnter={sendMessage}
+                  autoComplete="off"
+                  disabled={!isStreaming}
+                  className="rounded-l-lg border-border"
                 />
-              </>
-            )}
-          </Space>
-        </Card>
-      </Col>
-    </Row>
+                <Button type="primary" icon={<SendOutlined />} onClick={sendMessage} disabled={!isStreaming} className="bg-primary hover:bg-secondary border-none rounded-r-lg" />
+              </Space.Compact>
+            </div>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Pre-stream Setup & Device Check Modal */}
+      <Modal
+        title={<span className="text-navy font-bold">Stream Setup & Device Check</span>}
+        open={isDeviceModalOpen}
+        onCancel={closeDeviceCheck}
+        footer={[
+          <Button key="cancel" onClick={closeDeviceCheck} className="border-border text-navy">
+            Cancel
+          </Button>,
+          <Button key="submit" type="primary" icon={<VideoCameraOutlined />} onClick={handleStartStream} className="bg-primary hover:bg-secondary text-white border-none font-bold">
+            Go Live Now
+          </Button>,
+        ]}
+      >
+        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          <div>
+            <label className="block text-xs font-semibold text-text mb-1">
+              Stream Title *
+            </label>
+            <Input
+              placeholder="e.g. Building Full-Stack Live Stream App!"
+              value={inputTitle}
+              onChange={(e) => setInputTitle(e.target.value)}
+              size="large"
+              className="rounded-lg border-border"
+            />
+          </div>
+
+          <Row gutter={12}>
+            <Col span={12}>
+              <label className="block text-xs font-semibold text-text mb-1">
+                Camera Source
+              </label>
+              <Select
+                style={{ width: "100%" }}
+                value={selectedVideoDevice}
+                onChange={(val) => {
+                  setSelectedVideoDevice(val);
+                  handleDeviceChange(val, selectedAudioDevice);
+                }}
+              >
+                {videoDevices.map((d) => (
+                  <Option key={d.deviceId} value={d.deviceId}>
+                    {d.label || `Camera ${d.deviceId.slice(0, 5)}`}
+                  </Option>
+                ))}
+              </Select>
+            </Col>
+
+            <Col span={12}>
+              <label className="block text-xs font-semibold text-text mb-1">
+                Microphone Source
+              </label>
+              <Select
+                style={{ width: "100%" }}
+                value={selectedAudioDevice}
+                onChange={(val) => {
+                  setSelectedAudioDevice(val);
+                  handleDeviceChange(selectedVideoDevice, val);
+                }}
+              >
+                {audioDevices.map((d) => (
+                  <Option key={d.deviceId} value={d.deviceId}>
+                    {d.label || `Microphone ${d.deviceId.slice(0, 5)}`}
+                  </Option>
+                ))}
+              </Select>
+            </Col>
+          </Row>
+
+          <div>
+            <label className="block text-xs font-semibold text-text mb-1">
+              Device Video Preview
+            </label>
+            <div className="w-full h-48 bg-black rounded-lg overflow-hidden flex items-center justify-center">
+              <video ref={previewVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+            </div>
+          </div>
+        </Space>
+      </Modal>
+    </div>
   );
+};
+
+StartStreaming.propTypes = {
+  streamId: PropTypes.string,
 };
 
 export default StartStreaming;

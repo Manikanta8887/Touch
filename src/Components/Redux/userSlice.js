@@ -1,10 +1,9 @@
 import { createSlice } from "@reduxjs/toolkit";
 
-
 const initialState = {
-  firebaseUser: null, 
-  profilePic: null,   
-  bio: "",            
+  firebaseUser: null,
+  profilePic: null,
+  bio: "",
 };
 
 const userSlice = createSlice({
@@ -12,9 +11,16 @@ const userSlice = createSlice({
   initialState,
   reducers: {
     setFirebaseUser: (state, action) => {
-      const { uid, email, displayName, photoURL, bio } = action.payload || {};
+      if (!action.payload) {
+        state.firebaseUser = null;
+        state.profilePic = null;
+        state.bio = "";
+        return;
+      }
+      const { uid, email, displayName, photoURL, bio } = action.payload;
       state.firebaseUser = { uid, email, displayName, photoURL };
-      state.bio = bio || "";
+      if (photoURL) state.profilePic = photoURL;
+      if (bio !== undefined) state.bio = bio;
     },
 
     updateProfilePic: (state, action) => {
@@ -23,7 +29,9 @@ const userSlice = createSlice({
         state.firebaseUser.photoURL = action.payload;
       }
     },
+
     updateUser: (state, action) => {
+      if (!action.payload) return;
       if (state.firebaseUser) {
         state.firebaseUser = { ...state.firebaseUser, ...action.payload };
       } else {
@@ -36,6 +44,7 @@ const userSlice = createSlice({
         state.bio = action.payload.bio;
       }
     },
+
     logoutUser: (state) => {
       state.firebaseUser = null;
       state.profilePic = null;

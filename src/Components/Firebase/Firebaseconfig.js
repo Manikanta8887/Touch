@@ -3,12 +3,12 @@ import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
 
 const firebaseConfig = {
-  apiKey: "AIzaSyC1j4LnkedAUH2cEHyKr_PnrShSilacU5M",
-  authDomain: "touch-live-7a1f8.firebaseapp.com",
-  projectId: "touch-live-7a1f8",
-  storageBucket: "touch-live-7a1f8.firebasestorage.app",
-  messagingSenderId: "1062942612558",
-  appId: "1:1062942612558:web:7a7d3cec7549d17ab0371f"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
 const app = initializeApp(firebaseConfig);
