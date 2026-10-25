@@ -8,7 +8,7 @@ import StartStreaming from "./Components/Pages/Startstreaming";
 import StreamingContent from "./Components/Pages/Browse";
 import ProfilePage from "./Components/Pages/Profile";
 import WatchStream from "./Components/Pages/WatchStream.jsx";
-import { useSelector } from "react-redux";
+import { useSelector, useDispatch } from "react-redux";
 
 import Spin from "./assets/spinloading.svg";
 import { useEffect, useRef, useState, useMemo } from "react";
@@ -16,7 +16,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Avatar, Button, Space } from "antd";
 import { UserOutlined, LogoutOutlined } from "@ant-design/icons";
 import { signOut } from "./api/client";
-import { useDispatch } from "react-redux";
+// removed duplicate import
 
 // D-1: ProtectedRoute wrapper — redirects to /login if not authenticated
 const ProtectedRoute = ({ children }) => {
@@ -30,6 +30,8 @@ function App() {
   const firebaseUser = useSelector((s) => s.user.firebaseUser);
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
+
 
   const currentBaseRoute = useMemo(() => {
     return location.pathname.split("/")[1] || "/";
