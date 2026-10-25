@@ -43,6 +43,8 @@ const StartStreaming = () => {
   const videoRef = useRef(null);
   const chatEndRef = useRef(null);
   const peerConnections = useRef(new Map());
+  // BUG-011/P3-14: Always-current ref for localStream to fix stale closure in handleViewerJoined
+  const localStreamRef = useRef(null);
 
   const [localStream, setLocalStream] = useState(null);
   const [origVideoTrack, setOrigVideoTrack] = useState(null);
@@ -188,6 +190,7 @@ const StartStreaming = () => {
 
       const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
       setLocalStream(mediaStream);
+      localStreamRef.current = mediaStream; // BUG-011: keep ref in sync
       setOrigVideoTrack(mediaStream.getVideoTracks()[0]);
 
       if (videoRef.current) {
@@ -239,9 +242,11 @@ const StartStreaming = () => {
   // WebRTC Signaling Handlers
   useEffect(() => {
     const handleViewerJoined = async ({ viewerId }) => {
-      if (!localStream) return;
+      // BUG-011/P3-14: Read from ref instead of stale closure to always get current localStream
+      const currentStream = localStreamRef.current;
+      if (!currentStream) return;
       try {
-        const pc = await createPeerConnection(viewerId, localStream);
+        const pc = await createPeerConnection(viewerId, currentStream);
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         socket.emit("offer", { streamId: firebaseUser?.uid, offer, target: viewerId });
@@ -330,9 +335,10 @@ const StartStreaming = () => {
   const toggleScreenShare = async () => {
     if (!isStreaming || !localStream) return;
     if (isScreenSharing) {
+      // BUG-012/P3-7: Get the current screen track before removing it
+      const screenTrack = localStream.getVideoTracks()[0];
       if (origVideoTrack) {
-        const sender = localStream.getVideoTracks()[0];
-        localStream.removeTrack(sender);
+        localStream.removeTrack(screenTrack);
         localStream.addTrack(origVideoTrack);
         if (videoRef.current) videoRef.current.srcObject = localStream;
         peerConnections.current.forEach((pc) => {
@@ -340,6 +346,8 @@ const StartStreaming = () => {
           const s = senders.find((sns) => sns.track?.kind === "video");
           if (s) s.replaceTrack(origVideoTrack);
         });
+        // BUG-012: Stop screen track to dismiss OS screen-share indicator
+        screenTrack.stop();
       }
       setIsScreenSharing(false);
     } else {

@@ -7,14 +7,12 @@ import {
   signInWithPopup,
   signInAnonymously,
   sendPasswordResetEmail,
-  onAuthStateChanged,
 } from "firebase/auth";
 import { Auth, GoogleProvider } from "../Firebase/Firebaseconfig";
 import Logo from "../../assets/logo.png";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useDispatch } from "react-redux";
-import { setFirebaseUser } from "../Redux/userSlice";
 import { saveUser } from "../../api/users";
 
 const Login = () => {
@@ -25,22 +23,6 @@ const Login = () => {
   const [resetMode, setResetMode] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
   const [resetLoading, setResetLoading] = useState(false);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(Auth, (user) => {
-      if (user) {
-        dispatch(
-          setFirebaseUser({
-            uid: user.uid,
-            email: user.email,
-            displayName: user.displayName || "Anonymous User",
-            photoURL: user.photoURL || "",
-          })
-        );
-      }
-    });
-    return () => unsubscribe();
-  }, [dispatch]);
 
   const syncUserWithBackend = async (user, loginType) => {
     try {

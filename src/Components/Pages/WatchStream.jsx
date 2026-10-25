@@ -39,6 +39,8 @@ const WatchStream = () => {
   const videoContainerRef = useRef(null);
   const chatEndRef = useRef(null);
   const peerConnectionRef = useRef(null);
+  // BUG-011/BUG-006: Use a ref for streamerSocketId so socket handlers always have current value
+  const streamerSocketIdRef = useRef(null);
 
   const [streamInfo, setStreamInfo] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -49,7 +51,9 @@ const WatchStream = () => {
   const [viewerCount, setViewerCount] = useState(0);
 
   const setupPeerConnection = useCallback(async (streamerSocketId) => {
+    // BUG-006: Guard against re-creating peer connection if already established
     if (peerConnectionRef.current) return;
+    streamerSocketIdRef.current = streamerSocketId;
 
     try {
       const iceConfig = await getIceServers();
@@ -57,11 +61,11 @@ const WatchStream = () => {
       peerConnectionRef.current = pc;
 
       pc.onicecandidate = (e) => {
-        if (e.candidate && streamerSocketId) {
+        if (e.candidate && streamerSocketIdRef.current) {
           socket.emit("ice-candidate", {
             streamId: id,
             candidate: e.candidate,
-            target: streamerSocketId,
+            target: streamerSocketIdRef.current,
           });
         }
       };
@@ -80,29 +84,6 @@ const WatchStream = () => {
           setConnectionStatus("connecting");
         }
       };
-
-      socket.on("offer", async ({ offer, from }) => {
-        try {
-          await pc.setRemoteDescription(new RTCSessionDescription(offer));
-          const answer = await pc.createAnswer();
-          if (pc.signalingState === "have-remote-offer") {
-            await pc.setLocalDescription(answer);
-            socket.emit("answer", { streamId: id, answer, target: from });
-          }
-        } catch (err) {
-          console.error("[WebRTC Watcher] error handling offer:", err);
-        }
-      });
-
-      socket.on("ice-candidate", async ({ candidate }) => {
-        try {
-          if (pc.remoteDescription) {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
-          }
-        } catch (e) {
-          console.error("[WebRTC Watcher] addIceCandidate failed:", e);
-        }
-      });
     } catch (err) {
       console.error("PeerConnection initialization error:", err);
     }
@@ -134,6 +115,18 @@ const WatchStream = () => {
       }
       setStreamInfo(data);
       if (data.viewers !== undefined) setViewerCount(data.viewers);
+
+      // MISS-003: Replay chat history when viewer joins mid-stream
+      if (data.chatMessages && Array.isArray(data.chatMessages) && data.chatMessages.length > 0) {
+        const historyMessages = data.chatMessages.map((m) => ({
+          username: m.sender,
+          message: m.message,
+          time: m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "",
+          isHistory: true,
+        }));
+        setMessages(historyMessages);
+      }
+
       setupPeerConnection(data.streamerSocketId);
     };
 
@@ -153,10 +146,43 @@ const WatchStream = () => {
       cleanupStream();
     };
 
+    // BUG-006: Register offer and ice-candidate listeners here at top-level useEffect
+    // NOT inside setupPeerConnection, to avoid duplicate listener registration
+    const handleOffer = async ({ offer, from }) => {
+      const pc = peerConnectionRef.current;
+      if (!pc) return;
+      streamerSocketIdRef.current = from;
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await pc.createAnswer();
+        if (pc.signalingState === "have-remote-offer") {
+          await pc.setLocalDescription(answer);
+          socket.emit("answer", { streamId: id, answer, target: from });
+        }
+      } catch (err) {
+        console.error("[WebRTC Watcher] error handling offer:", err);
+      }
+    };
+
+    const handleIceCandidate = async ({ candidate }) => {
+      const pc = peerConnectionRef.current;
+      if (!pc) return;
+      try {
+        if (pc.remoteDescription) {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+      } catch (e) {
+        console.error("[WebRTC Watcher] addIceCandidate failed:", e);
+      }
+    };
+
     socket.on("stream-info", handleStreamInfo);
     socket.on("viewer-count", handleViewerCount);
     socket.on("stop-stream", handleStopStream);
     socket.on("stream-ended", handleStreamEnded);
+    // BUG-006: Listeners registered at top-level with specific handler refs for proper cleanup
+    socket.on("offer", handleOffer);
+    socket.on("ice-candidate", handleIceCandidate);
 
     return () => {
       socket.emit("leave-stream", { streamId: id });
@@ -164,8 +190,8 @@ const WatchStream = () => {
       socket.off("viewer-count", handleViewerCount);
       socket.off("stop-stream", handleStopStream);
       socket.off("stream-ended", handleStreamEnded);
-      socket.off("offer");
-      socket.off("ice-candidate");
+      socket.off("offer", handleOffer);
+      socket.off("ice-candidate", handleIceCandidate);
       cleanupStream();
     };
   }, [id, setupPeerConnection]);

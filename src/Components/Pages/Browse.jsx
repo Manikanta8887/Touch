@@ -32,7 +32,7 @@ const VideoCard = ({ vid }) => {
   const [playing, setPlaying] = useState(false);
 
   return (
-    <Card hoverable className="bg-card border border-border rounded-xl shadow-sm hover:shadow-md transition-all overflow-hidden" variant="borderless">
+    <Card hoverable className="bg-card border border-border rounded-xl shadow-sm hover:shadow-md transition-all overflow-hidden glass" variant="borderless">
       <div className="relative w-full h-44 bg-black rounded-lg overflow-hidden flex items-center justify-center">
         {playing ? (
           <video
@@ -235,7 +235,7 @@ const Browse = ({ defaultTab }) => {
                       {filteredStreams.map((stream) => (
                         <Col xs={24} sm={12} md={8} lg={6} key={stream.id || stream.streamerId}>
                           <Link to={`/livestreamingplatform/watch/${stream.id}`}>
-                            <Card hoverable className="bg-card border border-border rounded-xl shadow-sm hover:shadow-md transition-all overflow-hidden" variant="borderless">
+                            <Card hoverable className="bg-card border border-border rounded-xl shadow-sm hover:shadow-md transition-all overflow-hidden glass" variant="borderless">
                               <div className="relative w-full h-44 bg-navy rounded-lg overflow-hidden flex items-center justify-center">
                                 <VideoCameraOutlined className="text-4xl text-primary" />
                                 <div className="absolute top-2 left-2 bg-red-600 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-md uppercase tracking-wider animate-pulse">

@@ -261,7 +261,7 @@ export default function ProfilePage() {
                   <Row gutter={[20, 20]}>
                     {videos.map((vid, idx) => (
                       <Col xs={24} sm={12} md={8} lg={6} key={vid.public_id || idx}>
-                        <Card hoverable className="bg-card border border-border rounded-xl shadow-sm hover:shadow-md transition-all overflow-hidden" variant="borderless">
+                        <Card hoverable className="bg-card border border-border rounded-xl shadow-sm hover:shadow-md transition-all overflow-hidden glass" variant="borderless">
                           <div className="w-full h-44 bg-black rounded-lg overflow-hidden flex items-center justify-center">
                             <video src={vid.url} controls preload="metadata" className="w-full h-full object-cover" />
                           </div>
