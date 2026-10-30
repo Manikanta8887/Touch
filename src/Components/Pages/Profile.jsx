@@ -15,6 +15,7 @@ import {
   Skeleton,
   Popconfirm,
   Space,
+  List,
 } from "antd";
 import {
   UploadOutlined,
@@ -25,13 +26,14 @@ import {
   HistoryOutlined,
   PlaySquareOutlined,
   ClockCircleOutlined,
+  MessageOutlined,
 } from "@ant-design/icons";
 import { useSelector, useDispatch } from "react-redux";
 import { updateUser } from "../Redux/userSlice.js";
 import { useParams } from "react-router-dom";
 import { getUserProfile, updateUserProfile } from "../../api/profile";
 import { getUserVideos, getAllVideos, uploadVideo, deleteVideo } from "../../api/videos";
-import { getPastStreams } from "../../api/streams";
+import { getPastStreams, getStreamChat } from "../../api/streams";
 
 const MAX_STORAGE = 1024 * 1024 * 1024; // 1 GB free allocation
 
@@ -49,10 +51,17 @@ export default function ProfilePage() {
   const [uploading, setUploading] = useState(false);
   const [bioEditModal, setBioEditModal] = useState(false);
   const [bioInput, setBioInput] = useState("");
+  const [nameInput, setNameInput] = useState("");
+  const [profilePicInput, setProfilePicInput] = useState("");
 
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [videoTitle, setVideoTitle] = useState("");
+
+  // MISS-007: Stream session detail & chat modal
+  const [selectedStreamModal, setSelectedStreamModal] = useState(null);
+  const [streamChatMessages, setStreamChatMessages] = useState([]);
+  const [loadingChat, setLoadingChat] = useState(false);
 
   const targetUid = isPublic ? uid : loggedInUser?.uid;
 
@@ -67,6 +76,8 @@ export default function ProfilePage() {
       } else if (loggedInUser) {
         setProfileData(loggedInUser);
         setBioInput(reduxBio || "");
+        setNameInput(loggedInUser.displayName || "");
+        setProfilePicInput(loggedInUser.photoURL || "");
       }
 
       // Fetch user videos or all Cloudinary videos
@@ -111,19 +122,39 @@ export default function ProfilePage() {
   const usedMB = (usedBytes / (1024 * 1024)).toFixed(1);
   const storagePercent = Math.min(100, parseFloat(((usedBytes / MAX_STORAGE) * 100).toFixed(1)));
 
-  const handleUpdateBio = async () => {
+  const handleOpenEditModal = () => {
+    setBioInput(profileData?.bio || reduxBio || "");
+    setNameInput(profileData?.name || profileData?.displayName || "");
+    setProfilePicInput(profileData?.profilePic || profileData?.photoURL || "");
+    setBioEditModal(true);
+  };
+
+  // P4-12 / MISS-002 / INT-005: Update bio, name, and profilePic together
+  const handleUpdateProfile = async () => {
     if (!loggedInUser) return;
     try {
-      const res = await updateUserProfile(loggedInUser.uid, { bio: bioInput });
+      const updatePayload = {
+        bio: bioInput.trim(),
+        name: nameInput.trim() || undefined,
+        profilePic: profilePicInput.trim() || undefined,
+      };
+      const res = await updateUserProfile(loggedInUser.uid, updatePayload);
       if (res.success) {
-        dispatch(updateUser({ bio: bioInput }));
-        setProfileData((prev) => ({ ...prev, bio: bioInput }));
-        message.success("Profile bio updated!");
+        dispatch(updateUser(updatePayload));
+        setProfileData((prev) => ({
+          ...prev,
+          bio: updatePayload.bio,
+          name: updatePayload.name || prev?.name,
+          displayName: updatePayload.name || prev?.displayName,
+          profilePic: updatePayload.profilePic || prev?.profilePic,
+          photoURL: updatePayload.profilePic || prev?.photoURL,
+        }));
+        message.success("Profile updated successfully!");
         setBioEditModal(false);
       }
     } catch (err) {
-      console.error("Update bio error:", err);
-      message.error("Failed to update profile bio.");
+      console.error("Update profile error:", err);
+      message.error("Failed to update profile.");
     }
   };
 
@@ -164,6 +195,33 @@ export default function ProfilePage() {
     }
   };
 
+  // MISS-007: Open stream session details & fetch chat
+  const handleViewStreamSession = async (st) => {
+    setSelectedStreamModal(st);
+    if (st.chatMessages && st.chatMessages.length > 0) {
+      setStreamChatMessages(st.chatMessages);
+      return;
+    }
+    if (st._id) {
+      setLoadingChat(true);
+      try {
+        const chatRes = await getStreamChat(st._id);
+        if (chatRes && chatRes.data && chatRes.data.chatMessages) {
+          setStreamChatMessages(chatRes.data.chatMessages);
+        } else {
+          setStreamChatMessages([]);
+        }
+      } catch (err) {
+        console.warn("Could not fetch chat for session:", err);
+        setStreamChatMessages([]);
+      } finally {
+        setLoadingChat(false);
+      }
+    } else {
+      setStreamChatMessages([]);
+    }
+  };
+
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto p-4">
@@ -200,7 +258,7 @@ export default function ProfilePage() {
 
                 {!isPublic && (
                   <Space>
-                    <Button icon={<EditOutlined />} onClick={() => setBioEditModal(true)} className="border-border text-navy font-semibold rounded-lg hover:border-primary hover:text-primary">
+                    <Button icon={<EditOutlined />} onClick={handleOpenEditModal} className="border-border text-navy font-semibold rounded-lg hover:border-primary hover:text-primary">
                       Edit Profile
                     </Button>
                     <Button type="primary" icon={<UploadOutlined />} onClick={() => setUploadModalVisible(true)} className="bg-primary hover:bg-secondary text-white border-none font-semibold rounded-lg">
@@ -239,7 +297,7 @@ export default function ProfilePage() {
             key: "videos",
             label: (
               <span className="font-semibold">
-                <PlaySquareOutlined /> Uploaded Videos ({videos.length})
+                <PlaySquareOutlined /> Channel Videos ({videos.length})
               </span>
             ),
             children: (
@@ -248,39 +306,46 @@ export default function ProfilePage() {
                   <Card className="bg-background border border-border text-center py-12 rounded-xl" variant="borderless">
                     <Empty
                       image={Empty.PRESENTED_IMAGE_SIMPLE}
-                      description={<span className="text-text">No uploaded videos found in Cloudinary.</span>}
-                    >
-                      {!isPublic && (
-                        <Button type="primary" icon={<UploadOutlined />} onClick={() => setUploadModalVisible(true)} className="bg-primary hover:bg-secondary text-white border-none font-semibold rounded-lg mt-2">
-                          Upload Video Now
-                        </Button>
-                      )}
-                    </Empty>
+                      description={<span className="text-text">No videos uploaded yet.</span>}
+                    />
                   </Card>
                 ) : (
                   <Row gutter={[20, 20]}>
                     {videos.map((vid, idx) => (
                       <Col xs={24} sm={12} md={8} lg={6} key={vid.public_id || idx}>
-                        <Card hoverable className="bg-card border border-border rounded-xl shadow-sm hover:shadow-md transition-all overflow-hidden glass" variant="borderless">
-                          <div className="w-full h-44 bg-black rounded-lg overflow-hidden flex items-center justify-center">
-                            <video src={vid.url} controls preload="metadata" className="w-full h-full object-cover" />
+                        <Card hoverable className="bg-card border border-border rounded-xl shadow-sm hover:shadow-md transition-all overflow-hidden" variant="borderless">
+                          <div className="relative w-full h-40 bg-black rounded-lg overflow-hidden flex items-center justify-center">
+                            <video
+                              src={vid.url}
+                              className="w-full h-full object-cover"
+                              controls
+                              playsInline
+                            />
                           </div>
-                          <div className="pt-3 flex items-center justify-between">
-                            <h4 className="text-sm font-bold text-navy truncate flex-1 pr-2">
-                              {vid.title || "Untitled Video"}
-                            </h4>
-                            {!isPublic && (
-                              <Popconfirm
-                                title="Delete Video"
-                                description="Are you sure you want to delete this video from Cloudinary?"
-                                onConfirm={() => handleDeleteVideo(vid.public_id)}
-                                okText="Yes, Delete"
-                                cancelText="Cancel"
-                                okButtonProps={{ danger: true }}
-                              >
-                                <Button danger type="text" icon={<DeleteOutlined />} size="small" className="text-red-500 hover:text-red-700" />
-                              </Popconfirm>
-                            )}
+
+                          <div className="pt-3">
+                            <div className="flex items-center justify-between mb-1">
+                              <h4 className="text-base font-bold text-navy truncate">
+                                {vid.title || "Untitled Video"}
+                              </h4>
+                              {!isPublic && (
+                                <Popconfirm
+                                  title="Delete Video"
+                                  description="Are you sure you want to delete this video from Cloudinary?"
+                                  onConfirm={() => handleDeleteVideo(vid.public_id)}
+                                  okText="Yes, Delete"
+                                  cancelText="Cancel"
+                                  okButtonProps={{ danger: true }}
+                                >
+                                  <Button danger type="text" icon={<DeleteOutlined />} size="small" className="text-red-500 hover:text-red-700" />
+                                </Popconfirm>
+                              )}
+                            </div>
+                            {/* MISS-005: Display video size and timestamp */}
+                            <div className="flex items-center justify-between pt-1 border-t border-border/40 text-[11px] text-text">
+                              <span>{vid.createdAt ? new Date(vid.createdAt).toLocaleDateString() : "Uploaded video"}</span>
+                              {vid.sizeInBytes ? <span>{(vid.sizeInBytes / (1024 * 1024)).toFixed(1)} MB</span> : null}
+                            </div>
                           </div>
                         </Card>
                       </Col>
@@ -294,7 +359,7 @@ export default function ProfilePage() {
             key: "streams",
             label: (
               <span className="font-semibold">
-                <HistoryOutlined /> Past Stream History ({pastStreams.length})
+                <HistoryOutlined /> Stream History ({pastStreams.length})
               </span>
             ),
             children: (
@@ -310,19 +375,24 @@ export default function ProfilePage() {
                   <Row gutter={[16, 16]}>
                     {pastStreams.map((st, i) => (
                       <Col xs={24} sm={12} md={8} key={st._id || i}>
-                        <Card className="bg-card border border-border rounded-xl p-4 shadow-sm" variant="borderless">
+                        <Card
+                          hoverable
+                          onClick={() => handleViewStreamSession(st)}
+                          className="bg-card border border-border rounded-xl p-4 shadow-sm cursor-pointer hover:border-primary transition-all"
+                          variant="borderless"
+                        >
                           <div className="flex items-center justify-between mb-2">
                             <Tag color="purple" icon={<VideoCameraOutlined />} className="rounded-md font-semibold border-primary text-primary bg-primary/10">
                               Stream Session
                             </Tag>
                             <span className="text-xs text-text font-medium">{st.viewers || 0} Peak Viewers</span>
                           </div>
-                          <h4 className="text-base font-bold text-navy mb-1">
+                          <h4 className="text-base font-bold text-navy mb-1 truncate">
                             {st.streamTitle}
                           </h4>
-                          <div className="text-xs text-text flex items-center gap-1.5">
-                            <ClockCircleOutlined />{" "}
-                            {st.startTime ? new Date(st.startTime).toLocaleString() : "Recorded Session"}
+                          <div className="text-xs text-text flex items-center justify-between mt-2 pt-2 border-t border-border/40">
+                            <span className="flex items-center gap-1.5"><ClockCircleOutlined /> {st.startTime ? new Date(st.startTime).toLocaleString() : "Recorded"}</span>
+                            <span className="text-primary font-semibold flex items-center gap-1"><MessageOutlined /> Details</span>
                           </div>
                         </Card>
                       </Col>
@@ -335,21 +405,44 @@ export default function ProfilePage() {
         ]}
       />
 
-      {/* Edit Bio Modal */}
+      {/* P4-12 / MISS-002: Edit Profile Modal (Name, ProfilePic, Bio) */}
       <Modal
-        title={<span className="text-navy font-bold">Edit Channel Bio</span>}
+        title={<span className="text-navy font-bold">Edit Profile</span>}
         open={bioEditModal}
-        onOk={handleUpdateBio}
+        onOk={handleUpdateProfile}
         onCancel={() => setBioEditModal(false)}
         okText="Save Changes"
       >
-        <Input.TextArea
-          rows={4}
-          value={bioInput}
-          onChange={(e) => setBioInput(e.target.value)}
-          placeholder="Tell viewers about your channel and streaming schedule..."
-          className="rounded-lg border-border"
-        />
+        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          <div>
+            <label className="block text-sm text-text mb-1 font-medium">Display Name</label>
+            <Input
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              placeholder="Your Channel / Display Name"
+              className="rounded-lg border-border"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-text mb-1 font-medium">Profile Picture URL</label>
+            <Input
+              value={profilePicInput}
+              onChange={(e) => setProfilePicInput(e.target.value)}
+              placeholder="https://example.com/avatar.jpg"
+              className="rounded-lg border-border"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-text mb-1 font-medium">Channel Bio</label>
+            <Input.TextArea
+              rows={4}
+              value={bioInput}
+              onChange={(e) => setBioInput(e.target.value)}
+              placeholder="Tell viewers about your channel and streaming schedule..."
+              className="rounded-lg border-border"
+            />
+          </div>
+        </Space>
       </Modal>
 
       {/* Upload Video Modal */}
@@ -382,6 +475,52 @@ export default function ProfilePage() {
             />
           </div>
         </Space>
+      </Modal>
+
+      {/* MISS-007: Stream Session Details & Recorded Chat Modal */}
+      <Modal
+        title={<span className="text-navy font-bold">Stream Session Details</span>}
+        open={Boolean(selectedStreamModal)}
+        onCancel={() => setSelectedStreamModal(null)}
+        footer={[
+          <Button key="close" onClick={() => setSelectedStreamModal(null)} className="rounded-lg">
+            Close
+          </Button>,
+        ]}
+      >
+        {selectedStreamModal && (
+          <Space direction="vertical" style={{ width: "100%" }} orientation="vertical" size="small">
+            <h3 className="text-lg font-bold text-navy">{selectedStreamModal.streamTitle}</h3>
+            <div className="flex justify-between text-xs text-text bg-background p-2 rounded-lg">
+              <span><strong>Started:</strong> {selectedStreamModal.startTime ? new Date(selectedStreamModal.startTime).toLocaleString() : "N/A"}</span>
+              <span><strong>Peak Viewers:</strong> {selectedStreamModal.viewers || 0}</span>
+            </div>
+            <div className="mt-3">
+              <h4 className="text-sm font-semibold text-navy mb-2 flex items-center gap-1.5">
+                <MessageOutlined /> Recorded Chat Messages ({streamChatMessages.length})
+              </h4>
+              <div className="max-h-48 overflow-y-auto bg-background p-3 rounded-lg border border-border">
+                {loadingChat ? (
+                  <Skeleton active paragraph={{ rows: 2 }} />
+                ) : streamChatMessages.length === 0 ? (
+                  <p className="text-xs text-text italic">No chat messages were recorded during this session.</p>
+                ) : (
+                  <List
+                    size="small"
+                    dataSource={streamChatMessages}
+                    renderItem={(item) => (
+                      <List.Item className="!py-1 !px-0 border-b border-border/30">
+                        <span className="text-xs">
+                          <strong className="text-primary">{item.sender}:</strong> {item.message}
+                        </span>
+                      </List.Item>
+                    )}
+                  />
+                )}
+              </div>
+            </div>
+          </Space>
+        )}
       </Modal>
     </div>
   );

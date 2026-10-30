@@ -69,7 +69,17 @@ const VideoCard = ({ vid }) => {
           <Avatar size="small" className="bg-primary">
             {vid.uploaderName ? vid.uploaderName.charAt(0).toUpperCase() : "U"}
           </Avatar>
-          <span className="text-xs text-text font-medium">By {vid.uploaderName || "Unknown"}</span>
+          {vid.uploaderUid ? (
+            <Link to={`/livestreamingplatform/profile/${vid.uploaderUid}`} className="text-xs text-text font-medium hover:text-primary transition-colors">
+              By {vid.uploaderName || "Unknown"}
+            </Link>
+          ) : (
+            <span className="text-xs text-text font-medium">By {vid.uploaderName || "Unknown"}</span>
+          )}
+        </div>
+        <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/40 text-[11px] text-text">
+          <span>{vid.createdAt ? new Date(vid.createdAt).toLocaleDateString() : "Uploaded video"}</span>
+          {vid.sizeInBytes ? <span>{(vid.sizeInBytes / (1024 * 1024)).toFixed(1)} MB</span> : null}
         </div>
       </div>
     </Card>
@@ -82,6 +92,9 @@ VideoCard.propTypes = {
     coverImage: PropTypes.string,
     title: PropTypes.string,
     uploaderName: PropTypes.string,
+    uploaderUid: PropTypes.string,
+    createdAt: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
+    sizeInBytes: PropTypes.number,
   }).isRequired,
 };
 
