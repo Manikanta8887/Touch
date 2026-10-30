@@ -5,7 +5,7 @@ import { UserOutlined, MailOutlined, LockOutlined, ArrowLeftOutlined } from "@an
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { Auth } from "../Firebase/Firebaseconfig";
 import Logo from "../../assets/logo.png";
-import { ToastContainer, toast } from "react-toastify";
+import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { saveUser } from "../../api/users";
 
@@ -47,7 +47,7 @@ const Signup = () => {
       });
 
       toast.success("Account created successfully! Redirecting...");
-      setTimeout(() => navigate("/login"), 1500);
+      setTimeout(() => navigate("/livestreamingplatform"), 1200);
     } catch (error) {
       const errorMsg =
         error.code === "auth/email-already-in-use"
@@ -149,7 +149,7 @@ const Signup = () => {
           Already have an account? <Link to="/login" className="text-primary font-bold hover:text-secondary">Sign in</Link>
         </p>
       </Card>
-      <ToastContainer position="top-right" autoClose={3000} theme="dark" />
+
     </div>
   );
 };

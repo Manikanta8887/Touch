@@ -1,7 +1,10 @@
 import apiClient from "./client";
 
-export const saveUser = async (userData) => {
-  const response = await apiClient.post("/api/users", userData);
+export const saveUser = async (userData, token) => {
+  const config = token
+    ? { headers: { Authorization: `Bearer ${token}` } }
+    : {};
+  const response = await apiClient.post("/api/users", userData, config);
   return response.data;
 };
 

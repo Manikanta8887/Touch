@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Input, Button, Form, Card, Divider } from "antd";
 import { GoogleOutlined, UserOutlined, MailOutlined, LockOutlined, ArrowLeftOutlined } from "@ant-design/icons";
@@ -10,14 +10,14 @@ import {
 } from "firebase/auth";
 import { Auth, GoogleProvider } from "../Firebase/Firebaseconfig";
 import Logo from "../../assets/logo.png";
-import { ToastContainer, toast } from "react-toastify";
+import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { useDispatch } from "react-redux";
+
 import { saveUser } from "../../api/users";
 
 const Login = () => {
   const navigate = useNavigate();
-  const dispatch = useDispatch();
+
 
   const [loading, setLoading] = useState({ email: false, google: false, guest: false });
   const [resetMode, setResetMode] = useState(false);
@@ -26,6 +26,7 @@ const Login = () => {
 
   const syncUserWithBackend = async (user, loginType) => {
     try {
+      const token = await user.getIdToken(true);
       const userData = {
         uid: user.uid,
         name: user.displayName || user.email?.split("@")[0] || "Guest Streamer",
@@ -33,7 +34,7 @@ const Login = () => {
         profilePic: user.photoURL || "",
       };
 
-      await saveUser(userData);
+      await saveUser(userData, token);
       toast.success(`${loginType.toUpperCase()} Login Successful!`);
       setTimeout(() => navigate("/livestreamingplatform", { replace: true }), 1200);
     } catch (error) {
@@ -233,7 +234,7 @@ const Login = () => {
           </>
         )}
       </Card>
-      <ToastContainer position="top-right" autoClose={3000} theme="dark" />
+
     </div>
   );
 };
